@@ -48,20 +48,27 @@ Kokkos::ScopeGuard scopegard(argc, argv);
     Kokkos::View<double**, Kokkos::LayoutRight, Kokkos::DefaultHostExecutionSpace>
             res_host(res, batch_size, mat_size); */
 
-    Kokkos::View<double**, Kokkos::LayoutRight, Kokkos::DefaultExecutionSpace> res_view("res_view", batch_size, mat_size);
    // Kokkos::deep_copy(res_view, res_host);
 
    
     std::cout << " after factorize " << std ::endl;
   //  double solution[] = {2. / 3., 1. / 9., 7. / 9., -1. / 9., 2. / 9.};
    // DSpan2D res_span(res_view.data(), batch_size, mat_size);
-    static_assert(std::is_same_v<Kokkos::DefaultExecutionSpace, Kokkos::Cuda>);
-        Kokkos::DefaultExecutionSpace exec_space;
-        std::shared_ptr const gko_exec = gko::CudaExecutor::
+  // 
+   /*
+    if(std::is_same_v<Kokkos::DefaultExecutionSpace, Kokkos::Serial>)
+  std::shared_ptr const gko_exec =gko::ReferenceExecutor::create();
+    
+    */
+Kokkos::DefaultExecutionSpace exec_space;
+std::shared_ptr const gko_exec = gko::CudaExecutor::
                 create(exec_space.cuda_device(),
                        create_default_host_executor(),
                        std::make_shared<gko::CudaAllocator>(),
                        exec_space.cuda_stream());
+    
+                      
+                      
 
     Kokkos::View<double***, Kokkos::LayoutStride, Kokkos::DefaultExecutionSpace>
             values_view("values_view", values_layout);
@@ -107,8 +114,8 @@ Kokkos::ScopeGuard scopegard(argc, argv);
     Kokkos::fence();
     std::cout<<"before ell construction "<<std::endl;
 
-gko::array<double> gko_values(gko_exec, values_view.span(), values_view.data());
- gko::array<int>    gko_idx(gko_exec, idx_view.span(), idx_view.data());
+auto gko_values=gko::array<double>::view (gko_exec, values_view.span(), values_view.data());
+ auto gko_idx=gko::array<int> ::view (gko_exec, idx_view.span(), idx_view.data());
      std::shared_ptr<gko::batch::matrix::Ell<double, int> >  batch_matrix_ell = gko::share(gko::batch::matrix::Ell<double>::create(
                 gko_exec,
                 gko::batch_dim<2>(batch_size, 
@@ -117,7 +124,7 @@ gko::array<double> gko_values(gko_exec, values_view.span(), values_view.data());
             gko_values,gko_idx
            ));
     std::cout<<"after ell "<<std::endl;
-/*
+
     gko::batch::stop::tolerance_type  tol_type = gko::batch::stop::tolerance_type::absolute;//relative;
       
 
@@ -128,14 +135,17 @@ gko::array<double> gko_values(gko_exec, values_view.span(), values_view.data());
                                                  .on(gko_exec);
         auto solver = solver_factory->generate(batch_matrix_ell);
         // Create a logger to obtain the iteration counts and "implicit" residual norms for every system after the solve.
-        std::shared_ptr<const gko::batch::log::BatchConvergence<double>> logger
-                = gko::batch::log::BatchConvergence<double>::create();
-        solver->add_logger(logger);
+      //  std::shared_ptr<const gko::batch::log::BatchConvergence<double>> logger
+       //         = gko::batch::log::BatchConvergence<double>::create();
+      //  solver->add_logger(logger);
         gko_exec->synchronize();
 
   //------------------------------------------------------------------------------------------     
         Kokkos::View<double***, Kokkos::LayoutRight, Kokkos::DefaultHostExecutionSpace>
                 x_view("x_view", batch_size, mat_size, 1);
+        Kokkos::View<double**, Kokkos::LayoutRight, Kokkos::DefaultExecutionSpace> 
+        res_view("res_view", batch_size, mat_size);
+      Kokkos::deep_copy(res_view,1.);
         auto x=gko::share(
             gko::batch::MultiVector<double>::
                     create(gko_exec,
@@ -149,6 +159,6 @@ gko::array<double> gko_values(gko_exec, values_view.span(), values_view.data());
                                    2>(res_view.extent(0), gko::dim<2>(res_view.extent(1),res_view.extent(2))),
                            gko::array<double>::view(gko_exec, res_view.span(), res_view.data())));
 
-  */  
+     solver->apply(b,x);
       return 0;
 }

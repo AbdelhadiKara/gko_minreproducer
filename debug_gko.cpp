@@ -103,7 +103,7 @@ std::shared_ptr const gko_exec = gko::CudaExecutor::
             values_view(0,0, 2) =0;
 
 
-              idx_view(mat_size  - 1, 1) = -1;
+              idx_view(mat_size  - 1, 0) = -1;
               idx_view(mat_size  - 1, 1) = mat_size - 2;
               idx_view(mat_size  - 1, 2) = mat_size - 1;
             values_view(0,mat_size  - 1, 0) = 0;
@@ -141,7 +141,7 @@ auto gko_values=gko::array<double>::view (gko_exec, values_view.span(), values_v
         gko_exec->synchronize();
 
   //------------------------------------------------------------------------------------------     
-        Kokkos::View<double***, Kokkos::LayoutRight, Kokkos::DefaultHostExecutionSpace>
+        Kokkos::View<double***, Kokkos::LayoutRight, Kokkos::DefaultExecutionSpace>
                 x_view("x_view", batch_size, mat_size, 1);
         Kokkos::View<double**, Kokkos::LayoutRight, Kokkos::DefaultExecutionSpace> 
         res_view("res_view", batch_size, mat_size);

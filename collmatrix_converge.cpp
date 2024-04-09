@@ -36,38 +36,51 @@ int main(int argc, char** argv)
   static_assert(sizeof(int)==4);
 Kokkos::ScopeGuard scopegard(argc, argv);
 
-    int const batch_size = 1;
-    int const mat_size = 5;
+    int const batch_size = 5;
+    int const mat_size = 601;
     int const non_zero_per_row = 3;
     int const max_iter=1000;
-    double const tol=1e-6;
+    double const tol=1e-15;
 
-std::vector<gko::matrix_data<double, int>> data;
+std::vector<gko::matrix_data<double, int>> rhs_data(batch_size);
    
-  //  double solution[] = {2. / 3., 1. / 9., 7. / 9., -1. / 9., 2. / 9.};
-   // DSpan2D res_span(res_view.data(), batch_size, mat_size);
-    static_assert(std::is_same_v<Kokkos::DefaultExecutionSpace, Kokkos::Cuda>);
+    //static_assert(std::is_same_v<Kokkos::DefaultExecutionSpace, Kokkos::Cuda>);
         Kokkos::DefaultExecutionSpace exec_space;
-        std::shared_ptr const gko_exec = gko::CudaExecutor::
+        std::shared_ptr const gko_exec = gko::ReferenceExecutor::create();/*gko::CudaExecutor::
                 create(exec_space.cuda_device(),
                        create_default_host_executor(),
                        std::make_shared<gko::CudaAllocator>(),
-                       exec_space.cuda_stream());
-//std::vector<gko::matrix_data<double, int>> batch_data( batch_size, data);
+                       exec_space.cuda_stream());*/
+                
     std::cerr<<"before ell construction "<<std::endl;
-
-auto batch_matrix_dense = gko::share(
-                DenseMtx::
-                        create(gko_exec->get_master(),
-                               gko::batch_dim<2>(batch_size, gko::dim<2>(mat_size,mat_size))));
-  data.emplace_back(gko::matrix_data<vdouble, int>(
-        {2, 2}, {{0, 0, 1.0}, {0, 1, 3.0}, {1, 0, 0.0}, {1, 1, 5.0}}));
-  
-  auto batch_matrix_ell = gko::share(
+    auto batch_matrix_ell = gko::share(
                 BatchEllMtx::
                         create(gko_exec,
                                gko::batch_dim<2>(batch_size, gko::dim<2>(mat_size, mat_size)),
                                non_zero_per_row));
+for(int i=0;i<1;i++){
+ auto ell_item = batch_matrix_ell->create_view_for_item(i);
+
+std::ifstream ell_stream("/collisionsdata/ell_"+std::to_string(i)+".mtx");
+std::ifstream rhs_stream("/collisionsdata/rhs_"+std::to_string(i)+".mtx");
+
+auto ell_buffer=gko::read_raw<double,int>(ell_stream);
+
+//auto rhs_item = gko::read<gko::matrix::Dense<>>(rhs_stream, gko_exec);
+ell_item->read(ell_buffer);
+//rhs_data.emplace_back(rhs_item);
+
+}
+//batch_matrix_ell->read(rhs_data);
+/*
+auto batch_matrix_dense = gko::share(
+                DenseMtx::
+                        create(gko_exec->get_master(),
+                               gko::batch_dim<2>(batch_size, gko::dim<2>(mat_size,mat_size))));
+  data.emplace_back(gko::matrix_data<double, int>(
+        {2, 2}, {{0, 0, 1.0}, {0, 1, 3.0}, {1, 0, 0.0}, {1, 1, 5.0}}));
+  
+
 
   batch_matrix_ell->create_view_for_item(0)->read(data[0]);
   
@@ -77,49 +90,11 @@ auto batch_matrix_dense = gko::share(
   //Kokkos::View<double**, Kokkos::LayoutRight, Kokkos::DefaultExecutionSpace> values_view(vals, mat_size,  mat_size);
   //Kokkos::View<int**, Kokkos::LayoutRight, Kokkos::DefaultExecutionSpace> idx_view(idx, mat_size,  mat_size);
 
-    std::cerr<<"before  at "<<std::endl;
-   // batch_matrix_dense->at(0,0,1)=1.;
- // batch_matrix_dense->at(0,0,0)=2.;
-  
-for(int i=1;i<mat_size-1;i++)
-{
-  batch_matrix_dense->at(0,i,i-1)=1.;
-  batch_matrix_dense->at(0,i,i)=2.;
-   batch_matrix_dense->at(0,i,i+1)=1.;
 
-}
-  batch_matrix_dense->at(0,mat_size-1,mat_size-1)=2.;
-  batch_matrix_dense->at(0,mat_size-1,mat_size-2)=1.;
+ // batch_matrix_dense->at(0,mat_size-1,mat_size-2)=1.;
 
 
-/*
-             Kokkos::parallel_for(
-            "idx_out_loop",
-            Kokkos::RangePolicy<Kokkos::DefaultExecutionSpace>(0, 1),
-            KOKKOS_LAMBDA(const int) {
-              idx_view(0, 0) = 0;
-              idx_view(0, 1) = 1;
-              idx_view(0, 2) = -1;
-
-            values_view(0, 0) = 2;
-            values_view(0, 1) = 1;
-            values_view(0, 2) =0;
-
-            idx_view(mat_size  - 1, 0) = -1;
-            idx_view(mat_size  - 1, 1) = mat_size - 2;
-            idx_view(mat_size  - 1, 2) = mat_size - 1;
-
-            values_view(mat_size  - 1, 0) = 0;
-            values_view(mat_size  - 1, 1) = 1;
-            values_view(mat_size  - 1, 2) = 2;
-
-            });
-
-   */
-    std::cerr<<"after ell "<<std::endl;
-    gko::batch::stop::tolerance_type  tol_type = gko::batch::stop::tolerance_type::absolute;//relative;
-      
-
+    gko::batch::stop::tolerance_type  tol_type = gko::batch::stop::tolerance_type::absolute;
         auto solver_factory = gko::batch::solver::Bicgstab<double>::build()
                                                  .with_max_iterations(max_iter)
                                                  .with_tolerance(tol)
@@ -156,6 +131,6 @@ for(int i=1;i<mat_size-1;i++)
 
   solver->apply(b,x);
       Kokkos::fence();
-
+*/
       return 0;
 }

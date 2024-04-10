@@ -68,8 +68,9 @@ int main(int argc, char **argv) {
 
   auto b_multivec = gko::batch::MultiVector<double>::create(
       gko_exec, gko::batch_dim<2>(batch_size, gko::dim<2>(mat_size, 1)));
+
   // Read matrix data
-  for (int i = 0; i < 1; i++) {
+  for (int i = 0; i < batch_size; i++) {
     auto ell_item = batch_matrix_ell->create_view_for_item(i);
     auto rhs_item = b_multivec->create_view_for_item(i);
     std::ifstream ell_stream("../collisionsdata/ell_" + std::to_string(i) +
@@ -84,7 +85,10 @@ int main(int argc, char **argv) {
         gko::matrix::Dense<double>::create(gko_exec, gko::dim<2>(mat_size, 1));
     m->read(rhs_buffer);
     m->move_to(rhs_item);
+
+    ell_buffer->move_to(ell_item);
     // gko::write(std::cout,rhs_item);
+    // gko::write(std::cout,ell_item);
   }
 
   gko::batch::stop::tolerance_type tol_type =
@@ -105,11 +109,11 @@ int main(int argc, char **argv) {
 
   //------------------------------------------------------------------------------------------
 
- // auto x = gko::batch::MultiVector<double>::create(
-   //   gko_exec, gko::batch_dim<2>(batch_size, gko::dim<2>(mat_size, 1)));
+  // auto x = gko::batch::MultiVector<double>::create(
+  //   gko_exec, gko::batch_dim<2>(batch_size, gko::dim<2>(mat_size, 1)));
 
+  auto x = b_multivec->clone();
   std::cout << "after Xview " << std::endl;
-  auto x=b_multivec->clone();
   // x->fill(1.);
   solver->apply(b_multivec, x);
 

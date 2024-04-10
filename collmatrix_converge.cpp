@@ -88,7 +88,7 @@ int main(int argc, char **argv) {
   }
 
   gko::batch::stop::tolerance_type tol_type =
-      gko::batch::stop::tolerance_type::absolute;
+      gko::batch::stop::tolerance_type::relative;
   auto solver_factory = gko::batch::solver::Bicgstab<double>::build()
                             .with_max_iterations(max_iter)
                             .with_tolerance(tol)
@@ -105,16 +105,15 @@ int main(int argc, char **argv) {
 
   //------------------------------------------------------------------------------------------
 
-  auto x = gko::batch::MultiVector<double>::create(
-      gko_exec, gko::batch_dim<2>(batch_size, gko::dim<2>(mat_size, 1)));
+ // auto x = gko::batch::MultiVector<double>::create(
+   //   gko_exec, gko::batch_dim<2>(batch_size, gko::dim<2>(mat_size, 1)));
 
   std::cout << "after Xview " << std::endl;
-  x->copy_from(b_multivec);
+  auto x=b_multivec->clone();
   // x->fill(1.);
   solver->apply(b_multivec, x);
 
   std::cout << "after solve " << std::endl;
-  // gko::write(std::cout, batch_matrix_ell);
 
   // allocate and compute the residual
   auto res = gko::batch::MultiVector<double>::create(

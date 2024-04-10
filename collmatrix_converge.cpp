@@ -30,13 +30,23 @@ inline std::shared_ptr<gko::Executor> create_default_host_executor() {
 #endif
 }
 
+template <typename InputType> auto unbatch(const InputType *batch_object) {
+  auto unbatched_mats =
+      std::vector<std::unique_ptr<typename InputType::unbatch_type>>{};
+  for (int b = 0; b < batch_object->get_num_batch_items(); ++b) {
+    unbatched_mats.emplace_back(
+        batch_object->create_const_view_for_item(b)->clone());
+  }
+  return unbatched_mats;
+}
+
 int main(int argc, char **argv) {
   using BatchEllMtx = gko::batch::matrix::Ell<double, int>;
   using DenseMtx = gko::batch::matrix::Dense<double>;
   static_assert(sizeof(int) == 4);
   Kokkos::ScopeGuard scopegard(argc, argv);
 
-  int const batch_size = 5;
+  int const batch_size = 10;
   int const mat_size = 601;
   int const non_zero_per_row = 3;
   int const max_iter = 1000;
@@ -44,15 +54,13 @@ int main(int argc, char **argv) {
 
   std::vector<gko::matrix_data<double, int>> rhs_data{};
 
-  // static_assert(std::is_same_v<Kokkos::DefaultExecutionSpace, Kokkos::Cuda>);
+  static_assert(std::is_same_v<Kokkos::DefaultExecutionSpace, Kokkos::Cuda>);
   Kokkos::DefaultExecutionSpace exec_space;
-  std::shared_ptr const gko_executor =
-      gko::ReferenceExecutor::create(); /*gko::CudaExecutor::
-create(exec_space.cuda_device(),
-create_default_host_executor(),
-std::make_shared<gko::CudaAllocator>(),
-exec_space.cuda_stream());*/
-  auto gko_exec = gko_executor->get_master();
+  std::shared_ptr const gko_exec = gko::CudaExecutor::create(
+      exec_space.cuda_device(), create_default_host_executor(),
+      std::make_shared<gko::CudaAllocator>(), exec_space.cuda_stream());
+  // auto gko_exec =
+  // gko::ReferenceExecutor::create();//gko_executor->get_master();
 
   auto batch_matrix_ell = gko::share(BatchEllMtx::create(
       gko_exec, gko::batch_dim<2>(batch_size, gko::dim<2>(mat_size, mat_size)),
@@ -76,6 +84,7 @@ exec_space.cuda_stream());*/
         gko::matrix::Dense<double>::create(gko_exec, gko::dim<2>(mat_size, 1));
     m->read(rhs_buffer);
     m->move_to(rhs_item);
+    // gko::write(std::cout,rhs_item);
   }
 
   gko::batch::stop::tolerance_type tol_type =
@@ -92,18 +101,20 @@ exec_space.cuda_stream());*/
       gko::batch::log::BatchConvergence<double>::create();
   solver->add_logger(logger);
   gko_exec->synchronize();
-  std::cerr << "after factory " << std::endl;
+  std::cout << "after factory " << std::endl;
 
   //------------------------------------------------------------------------------------------
 
   auto x = gko::batch::MultiVector<double>::create(
       gko_exec, gko::batch_dim<2>(batch_size, gko::dim<2>(mat_size, 1)));
 
-  std::cerr << "after Xview " << std::endl;
+  std::cout << "after Xview " << std::endl;
   x->copy_from(b_multivec);
+  // x->fill(1.);
   solver->apply(b_multivec, x);
 
-  std::cerr << "after solve " << std::endl;
+  std::cout << "after solve " << std::endl;
+  // gko::write(std::cout, batch_matrix_ell);
 
   // allocate and compute the residual
   auto res = gko::batch::MultiVector<double>::create(
@@ -112,53 +123,53 @@ exec_space.cuda_stream());*/
       gko_exec, gko::batch_dim<2>(batch_size, gko::dim<2>(mat_size, 1)));
   res->copy_from(b_multivec);
   // Compute norm of RHS on the device and automatically copy to host
-  /*    auto norm_dim = gko::batch_dim<2>(batch_size, gko::dim<2>(1, 1));
-      auto host_b_norm
-              = gko::batch::MultiVector<double>::create(gko_exec->get_master(),
-     norm_dim); host_b_norm->fill(0.0);
-      // allocate and compute residual norm
-      auto host_res_norm
-              = gko::batch::MultiVector<double>::create(gko_exec->get_master(),
-     norm_dim); host_res_norm->fill(0.0); to_gko_multivector(gko_exec,
-     b_view)->compute_norm2(host_b_norm);
-      // we need constants on the device
-      auto one = gko::batch::MultiVector<double>::create(gko_exec, norm_dim);
-      one->fill(1.0);
-      auto neg_one = gko::batch::MultiVector<double>::create(gko_exec,
-     norm_dim); neg_one->fill(-1.0); m_batch_matrix_ell->apply(one,
-     to_gko_multivector(gko_exec, x_view), neg_one, res);
+  auto norm_dim = gko::batch_dim<2>(batch_size, gko::dim<2>(1, 1));
+  auto host_b_norm =
+      gko::batch::MultiVector<double>::create(gko_exec->get_master(), norm_dim);
+  host_b_norm->fill(0.0);
+  // allocate and compute residual norm
+  auto host_res_norm =
+      gko::batch::MultiVector<double>::create(gko_exec->get_master(), norm_dim);
+  host_res_norm->fill(0.0);
+  b_multivec->compute_norm2(host_b_norm);
+  // we need constants on the device
+  auto one = gko::batch::MultiVector<double>::create(gko_exec, norm_dim);
+  one->fill(1.0);
+  auto neg_one = gko::batch::MultiVector<double>::create(gko_exec, norm_dim);
+  neg_one->fill(-1.0);
+  batch_matrix_ell->apply(one, x, neg_one, res);
 
-      res->compute_norm2(host_res_norm);
+  res->compute_norm2(host_res_norm);
 
-      auto host_log_resid
-              = gko::make_temporary_clone(gko_exec->get_master(),
-     &logger->get_residual_norm()); auto host_log_iters =
-     gko::make_temporary_clone(gko_exec->get_master(),
-     &logger->get_num_iterations());
+  auto host_log_resid = gko::make_temporary_clone(gko_exec->get_master(),
+                                                  &logger->get_residual_norm());
+  auto host_log_iters = gko::make_temporary_clone(
+      gko_exec->get_master(), &logger->get_num_iterations());
 
-      //std::cout << "Residual norm sqrt(r^T r):\n";
-      // "unbatch" converts a batch object into a vector of objects of the
-      // corresponding single type, eg. batch::matrix::Dense -->
-      // std::vector<Dense>.
-      auto unb_res = detail::unbatch(host_res_norm.get());
-      auto unb_bnorm = detail::unbatch(host_b_norm.get());
-     for (int i = 0; i < batch_size; ++i) {
+  // std::cout << "Residual norm sqrt(r^T r):\n";
+  // "unbatch" converts a batch object into a vector of objects of the
+  // corresponding single type, eg. batch::matrix::Dense -->
+  // std::vector<Dense>.
+  auto unb_res = unbatch(host_res_norm.get());
+  auto unb_bnorm = unbatch(host_b_norm.get());
+  for (int i = 0; i < batch_size; ++i) {
 
+    // Logger  output
+    std::cout << " System no. " << i
+              << ": residual norm = " << unb_res[i]->at(0, 0)
+              << ", implicit residual norm = "
+              << host_log_resid->get_const_data()[i]
+              << ", iterations = " << host_log_iters->get_const_data()[i]
+              << std::endl;
+    std::cout << " unbatched bnorm " << unb_bnorm[i]->at(0, 0)
+              << " unb residual residual norm " << unb_res[i]->at(0, 0)
+              << std::endl;
+    const double relresnorm = unb_res[i]->at(0, 0) / unb_bnorm[i]->at(0, 0);
+    if (!(relresnorm <= tol)) {
+      std::cout << "System " << i << " converged only to " << relresnorm
+                << " relative residual." << std::endl;
+    }
+  }
 
-       // Logger  output
-          std::cout << " System no. " << i << ": residual norm = " <<
-     unb_res[i]->at(0, 0)
-                    << ", implicit residual norm = " <<
-     host_log_resid->get_const_data()[i]
-                    << ", iterations = " << host_log_iters->get_const_data()[i]
-     << std::endl; std::cout << " unbatched bnorm " << unb_bnorm[i]->at(0, 0)
-                    << " unb residual residual norm " << unb_res[i]->at(0, 0) <<
-     std::endl; const double relresnorm = unb_res[i]->at(0, 0) /
-     unb_bnorm[i]->at(0, 0); if (!(relresnorm <= tol)) { std::cout << "System "
-     << i << " converged only to " << relresnorm
-                        << " relative residual." << std::endl;
-          }
-      }
-      */
   return 0;
 }

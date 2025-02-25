@@ -28,7 +28,7 @@ inline std::shared_ptr<gko::Executor> create_hip_executor() {
 
 int main(int argc, char **argv) {
   Kokkos::ScopeGuard scopegard(argc, argv);
-  /*
+  
       int const batch_size = 1;
       int const mat_size = 5;
       int const non_zero_per_row = 3;
@@ -44,26 +44,26 @@ int main(int argc, char **argv) {
               non_zero_per_row,
               mat_size);
 
-     // Kokkos::View<double*, Kokkos::LayoutRight,
+     Kokkos::View<double*, Kokkos::LayoutRight,
   Kokkos::DefaultHostExecutionSpace> values_host("values_host",  mat_size*
   non_zero_per_row);
-     // Kokkos::View<int*, Kokkos::LayoutRight,
+     Kokkos::View<int*, Kokkos::LayoutRight,
   Kokkos::DefaultHostExecutionSpace> idx_host("idx_host", mat_size*
   non_zero_per_row);
 
-    //  Kokkos::View<double**, Kokkos::LayoutRight,
+      Kokkos::View<double**, Kokkos::LayoutRight,
   Kokkos::DefaultHostExecutionSpace> res_host(res, batch_size, mat_size);
 
-     // Kokkos::deep_copy(res_view, res_host);
+     Kokkos::deep_copy(res_view, res_host);
 
 
       std::cout << " after factorize " << std ::endl;
-    //  double solution[] = {2. / 3., 1. / 9., 7. / 9., -1. / 9., 2. / 9.};
-     // DSpan2D res_span(res_view.data(), batch_size, mat_size);
-    //
+      double solution[] = {2. / 3., 1. / 9., 7. / 9., -1. / 9., 2. / 9.};
+     Kokkos::mdspan<ElementType, Kokkos::dextents<std::size_t, 2>> res_span(res_view.data(), batch_size, mat_size);
+    
 
-      //if(std::is_same_v<Kokkos::DefaultExecutionSpace, Kokkos::Serial>)
-    //std::shared_ptr const gko_exec =gko::ReferenceExecutor::create();
+     if(std::is_same_v<Kokkos::DefaultExecutionSpace, Kokkos::Serial>)
+    std::shared_ptr const gko_exec =gko::ReferenceExecutor::create();
 
 
   Kokkos::DefaultExecutionSpace exec_space;
@@ -144,10 +144,10 @@ int main(int argc, char **argv) {
           auto solver = solver_factory->generate(batch_matrix_ell);
           // Create a logger to obtain the iteration counts and "implicit"
   residual norms for every system after the solve.
-        //  std::shared_ptr<const gko::batch::log::BatchConvergence<double>>
+          std::shared_ptr<const gko::batch::log::BatchConvergence<double>>
   logger
-         //         = gko::batch::log::BatchConvergence<double>::create();
-        //  solver->add_logger(logger);
+                 = gko::batch::log::BatchConvergence<double>::create();
+          solver->add_logger(logger);
           gko_exec->synchronize();
 
     //------------------------------------------------------------------------------------------
@@ -171,6 +171,6 @@ int main(int argc, char **argv) {
                              gko::array<double>::view(gko_exec, res_view.span(),
   res_view.data())));
 
-       solver->apply(b,x);*/
+       solver->apply(b,x);
   return 0;
 }

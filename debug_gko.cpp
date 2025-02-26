@@ -5,6 +5,85 @@
 
 #include <Kokkos_Core.hpp>
 
+inline void write_log(std::fstream &log_file, int const batch_index,
+                      int const num_iterations, double const implicit_res_norm,
+                      double const true_res_norm, double const b_norm,
+                      double const tol) {
+  log_file << " System no. " << batch_index << ":" << std::endl;
+  log_file << " Number of iterations = " << num_iterations << std::endl;
+  log_file << " Implicit residual norm = " << implicit_res_norm << std::endl;
+  log_file << " True (Ax-b) residual norm = " << true_res_norm << std::endl;
+  log_file << " Right-hand side (b) norm = " << b_norm << std::endl;
+  if (!(true_res_norm <= tol)) {
+    log_file << " --- System " << batch_index << " did not converge! ---"
+             << std::endl;
+  }
+  log_file << "------------------------------------------------" << std::endl;
+}
+
+void save_logger(
+    std::fstream &log_file,
+    std::shared_ptr<gko::matrix::Csr<double, int>> batch_matrix,
+    Kokkos::View<double *, Kokkos::LayoutRight,
+                 Kokkos::DefaultExecutionSpace> const x_view,
+    Kokkos::View<double *, Kokkos::LayoutRight,
+                 Kokkos::DefaultExecutionSpace> const b_view,
+    std::shared_ptr<const gko::batch::log::BatchConvergence<double>> logger,
+    double const tol) {
+  std::shared_ptr const gko_exec = batch_matrix->get_executor();
+  int const batch_size = 2;
+  int const mat_size = 4;
+
+  auto x = gko::matrix::Dense<double>::create(
+      gko_exec, gko::dim<2>(x_view.extent(0), 1),
+      gko::array<double>::view(gko_exec, x_view.span(), x_view.data()),
+      x_view.stride_0());
+  auto b = gko::matrix::Dense<double>::create(
+      gko_exec, gko::dim<2>(b_view.extent(0), 1),
+      gko::array<double>::view(gko_exec, b_view.span(), b_view.data()),
+      b_view.stride_0());
+
+  // allocate the residual
+  auto res =gko::matrix::Dense<double>::create(gko_exec, gko::dim<2>(b_view.extent(0), 1));
+
+  res->copy_from(b);
+
+gko::dim<2> norm_dim(gko::dim<2>(1, 1));
+    // allocate rhs norm on host.
+    auto b_norm_host = gko::matrix::Dense<double>::create(gko_exec->get_master(), norm_dim);
+    b_norm_host->fill(0.0);
+    // allocate the residual norm on host.
+    auto res_norm_host = gko::matrix::Dense<double>::create(gko_exec->get_master(), norm_dim);
+    res_norm_host->fill(0.0);
+    // compute rhs norm.
+    b->compute_norm2(b_norm_host);
+    // we need constants on the device
+    auto one = gko::matrix::Dense<double>::create(gko_exec, norm_dim);
+    one->fill(1.0);
+    auto neg_one = gko::matrix::Dense<double>::create(gko_exec, norm_dim);
+    neg_one->fill(-1.0);
+
+  
+  // to estimate the "true" residual, the apply function below computes Ax-res,
+  // and stores the result in res.
+  batch_matrix->apply(one, x, neg_one, res);
+  // compute residual norm.
+  res->compute_norm2(res_norm_host);
+
+  auto log_iters_host = logger->get_num_iterations();
+  auto log_resid_host =logger->get_residual_norm();
+      
+
+ // for (int i = 0; i < batch_size; ++i) {
+    write_log(log_file, 0, log_iters_host.get_data()[0],
+              log_resid_host.get_data()[0],
+              res_norm_host->at(0, 0),
+              b_norm_host->at(0, 0), tol);
+  //}
+
+}
+
+
 inline std::shared_ptr<gko::Executor> create_default_host_executor() {
 #ifdef KOKKOS_ENABLE_SERIAL
   if constexpr (std::is_same_v<Kokkos::DefaultHostExecutionSpace,
@@ -98,7 +177,7 @@ int main(int argc, char **argv) {
   gko::batch::stop::tolerance_type tol_type =
       gko::batch::stop::tolerance_type::absolute; // relative;
 
-  auto solver_factory = gko::batch::solver::Bicgstab<double>::build()
+  auto solver_factory = gko::batch::solver::Cg<double>::build()
                             .with_max_iterations(max_iter)
                             .with_tolerance(tol)
                             .with_tolerance_type(tol_type)
@@ -112,10 +191,9 @@ int main(int argc, char **argv) {
   gko_exec->synchronize();
 
   //------------------------------------------------------------------------------------------
-  Kokkos::View<double ***, Kokkos::LayoutRight, Kokkos::DefaultExecutionSpace>
-      x_view("x_view", batch_size, mat_size, 1);
+  Kokkos::View<double **, Kokkos::LayoutRight, Kokkos::DefaultExecutionSpace>
+      x_view("x_view", batch_size, mat_size);
 
-  // Kokkos::deep_copy(res_view, 1.);
   auto x = gko::share(gko::batch::MultiVector<double>::create(
       gko_exec,
       gko::batch_dim<2>(x_view.extent(0),
@@ -128,5 +206,11 @@ int main(int argc, char **argv) {
       gko::array<double>::view(gko_exec, res_view.span(), res_view.data())));
 
   solver->apply(b, x);
+  
+  std::fstream log_file("csr_log.txt", std::ios::out | std::ios::app);
+                  save_logger(log_file, batch_matrix_csr->create_view_for_item(0),
+  Kokkos::subview(x_view,0,Kokkos::ALL),
+  Kokkos::subview(res_view,0,Kokkos::ALL), logger, tol); log_file.close();
+
   return 0;
 }
